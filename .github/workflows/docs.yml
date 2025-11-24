@@ -22,14 +22,6 @@ jobs:
           environment-file: docs/environment.yml
           python-version: "3.11"
           auto-update-conda: true
-      
-      - name: Verify environment
-      	shell: bash -l {0}
-        run: |
-          which python
-          python --version
-          which sphinx-build
-          conda list
 
       - name: Build HTML
         working-directory: docs
