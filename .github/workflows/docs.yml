@@ -22,9 +22,17 @@ jobs:
           environment-file: docs/environment.yml
           python-version: "3.11"
           auto-update-conda: true
+      
+      - name: Verify environment
+        run: |
+          which python
+          python --version
+          which sphinx-build
+          conda list
 
       - name: Build HTML
         working-directory: docs
+        shell: bash -l {0}
         run: make html
 
       - name: Upload artifact for Pages
