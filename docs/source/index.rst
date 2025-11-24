@@ -1,9 +1,7 @@
 Petrov-Galerkin formulations addon for FEniCSx
 =====================================================
 
-
-
-Kronecker product module
+Index
 ~~~~~~~~~~~~~~~~~~~~~~~~
 .. toctree::
    :maxdepth: 2
