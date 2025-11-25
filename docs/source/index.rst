@@ -6,7 +6,10 @@ Index
 .. toctree::
    :maxdepth: 2
 
-   pgfenicsx
+.. automodule:: pgfenicsx
+   :no-members:
+   :no-inherited-members:
+   :no-special-members:
 
 
 :ref:`genindex`

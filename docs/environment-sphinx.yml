@@ -1,6 +1,6 @@
-# Only needed to build the docs
+# Only needed to build the docs, use as follows:
 # conda env create -f environment.yml
-# conda env update -f environment-sphinx.yml
+# conda env update -f docs/environment-sphinx.yml
 name: pgfenicsx
 channels:
   - conda-forge

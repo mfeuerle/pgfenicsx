@@ -1,7 +1,6 @@
 # if wanted
 # conda env create -f environment.yml
 # conda env update -f environment-mkl.yml
-
 name: pgfenicsx
 channels:
   - conda-forge
