@@ -19,13 +19,18 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           activate-environment: docs
-          environment-file: docs/environment.yml
+          environment-file: environment.yml
           python-version: "3.12"
           auto-update-conda: true
+      
+      - name: Update environment with sphinx dependencies
+        shell: bash -l {0}
+        run: conda env update -n docs -f docs/environment-sphinx.yml
 
       - name: Build HTML
         working-directory: docs
         shell: bash -l {0}
+        run: make clean
         run: make html
 
       - name: Upload artifact for Pages

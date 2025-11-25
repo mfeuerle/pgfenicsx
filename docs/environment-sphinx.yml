@@ -1,0 +1,10 @@
+# Only needed to build the docs
+# conda env create -f environment.yml
+# conda env update -f environment-sphinx.yml
+name: pgfenicsx
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - sphinx
+  - pydata-sphinx-theme
