@@ -9,5 +9,5 @@ dependencies:
   - numpy
   - scipy
   - pytest
-  - fenics-dolfinx=0.1
+  - fenics-dolfinx=0.10
   - mpich
