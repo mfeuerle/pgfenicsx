@@ -15,17 +15,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+      - name: Set up micromamba
+        uses: mamba-org/setup-micromamba@v2
         with:
           activate-environment: docs
           environment-file: environment.yml
           python-version: "3.12"
           auto-update-conda: true
+          cache-environment: true
+          cache-environment-key: "env-${{ hashFiles('environment.yml', 'environment-tests.yml') }}"
 
       - name: Update environment with sphinx dependencies
         shell: bash -l {0}
-        run: conda env update -n docs -f docs/environment-sphinx.yml
+        run: micromamba env update -n docs -f docs/environment-sphinx.yml
 
       - name: Build HTML
         working-directory: docs
