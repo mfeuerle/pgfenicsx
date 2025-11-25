@@ -6,8 +6,7 @@ Index
 .. toctree::
    :maxdepth: 2
 
-   modules/kron
-   modules/kron.utils
+   pgfenicsx
 
 
 :ref:`genindex`

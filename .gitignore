@@ -70,6 +70,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/source/_generated
 
 # PyBuilder
 .pybuilder/
@@ -207,3 +208,5 @@ marimo/_lsp/
 __marimo__/
 
 .vscode/
+
+

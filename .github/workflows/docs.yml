@@ -2,7 +2,7 @@ name: Build and Deploy Docs
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
         with:
           activate-environment: docs
           environment-file: docs/environment.yml
-          python-version: "3.11"
+          python-version: "3.12"
           auto-update-conda: true
 
       - name: Build HTML
@@ -49,4 +49,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-

@@ -12,7 +12,8 @@
 #
 import pathlib
 import sys
-sys.path.insert(0, pathlib.Path(__file__).parents[2].resolve().joinpath('source').as_posix())
+sys.path.insert(0, pathlib.Path(__file__).parents[2].resolve().as_posix())
+
 
 
 # -- Project information -----------------------------------------------------
@@ -80,6 +81,10 @@ autodoc_default_options = {
     'undoc-members': True,
 }
 
+
+autodoc_typehints_format = 'fully-qualified'
+autodoc_typehints = 'description'
+
 # -----------------------------------------------------------------------------
 # Intersphinx configuration
 # -----------------------------------------------------------------------------
@@ -87,4 +92,5 @@ intersphinx_mapping = {
     'python': ('https://docs.python.org/dev', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'scipy': ('http://docs.scipy.org/doc/scipy/reference', None),
+    'dolfinx': ('https://docs.fenicsproject.org/dolfinx/main/python/', None),
 }
