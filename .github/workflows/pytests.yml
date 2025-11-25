@@ -1,0 +1,26 @@
+name: Run Pytests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: tests
+          environment-file: environment.yml
+          python-version: "3.12"
+          auto-update-conda: true
+
+      - name: Run pytest
+        shell: bash -l {0}
+        run: pytest -v

@@ -1,0 +1,13 @@
+# conda env create -f environment.yml
+
+name: pgfenicsx
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - numpy
+  - scipy
+  - pytest
+  - fenics-dolfinx=0.1
+  - mpich
