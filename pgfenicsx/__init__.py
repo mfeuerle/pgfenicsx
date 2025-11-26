@@ -1,7 +1,5 @@
 # Moritz Feuerle, 2025
-
 r""" 
-
 Classes
 -----------------
 .. autosummary::
@@ -15,6 +13,7 @@ Functions
    :toctree: _generated/ 
    
    dirichletbc
+   collect_dirichletbcs
 
 
 .. sectionauthor:: Moritz Feuerle, 2022
