@@ -1,6 +1,6 @@
 # Moritz Feuerle, 2025
 
-__all__ = ['DirichletBC', 'dirichletbc', 'collect_dirichletbcs', 'setup_boundary_meshtags', 'concatenate_meshtags', 'assemble_system']
+__all__ = ['DirichletBC', 'dirichletbc', 'collect_dirichletbcs', 'setup_boundary_meshtags', 'concatenate_meshtags', 'assemble_system', 'assemble_matrix', 'assemble_vector']
 
 
 import numpy as np
@@ -231,24 +231,23 @@ def collect_dirichletbcs(bcs: Iterable[DirichletBC | fem.DirichletBC] | None, fu
         if isinstance(bc, fem.DirichletBC):
             if function_space is None:
                 raise ValueError('function_space must be provided if bcs contains dolfinx.fem.DirichletBCs')
-            idx = np.where([bc.function_space == space._cpp_object for space in function_space])[0]
-            bcs_converted.append(DirichletBC(function_space[idx[0]], bc))
-        else:
+            if bc.function_space == function_space._cpp_object:
+                bcs_converted.append(DirichletBC(function_space, bc))
+        elif bc.function_space == function_space:
             bcs_converted.append(bc)
     bcs = bcs_converted
     
-    hits = np.where([bc.function_space == function_space for bc in bcs])[0]
-    if len(hits) == 0:      # empty bc
+    if len(bcs) == 0:      # empty bc
         return DirichletBC(function_space, np.array([],dtype=default_scalar_type), np.array([],dtype=np.int32))
-    elif len(hits) == 1:    # only one bc, nothing to collect
-        return bcs[hits[0]]
+    elif len(bcs) == 1:    # only one bc, nothing to collect
+        return bcs[0]
     
     all_dofs = np.empty((1, 0), np.int32)
     all_values = np.empty((1, 0), default_scalar_type)
     
-    for i in hits:
-        dofs = bcs[i].fixed_dofs
-        values = bcs[i].values
+    for bc in bcs:
+        dofs = bc.fixed_dofs
+        values = bc.values
         
         idx_duplicates = np.isin(dofs, all_dofs, assume_unique=True)
         idx_new = np.logical_not(idx_duplicates)
@@ -329,44 +328,70 @@ def assemble_system(F: ufl.form.Form | tuple[ufl.form.Form, ufl.form.Form], bcs:
     [trial_bc,test_bc] = collect_dirichletbcs(bcs, [trial_space, test_space])
     
     if petsc:
-        return _assemble_system_PETSc(A, l, trial_bc, test_bc)
+        A = _assemble_matrix_PETSc(A, trial_bc, test_bc)
+        l = _assemble_vector_PETSc(l, trial_bc, test_bc)
     else:
-        return _assemble_system_scipy(A,l,trial_bc,test_bc)
+        A = _assemble_matrix_scipy(A, trial_bc, test_bc)
+        l = _assemble_vector_scipy(l, trial_bc, test_bc)
+    return A,l
 
+def assemble_matrix(A: ufl.form.Form, bcs: Iterable[DirichletBC] | None = None, petsc: bool = False) -> sparse.csr_array | PETSc.Mat:
+    
+    trial_space = A.arguments()[1].ufl_function_space()
+    test_space  = A.arguments()[0].ufl_function_space()
+    
+    [trial_bc,test_bc] = collect_dirichletbcs(bcs, [trial_space, test_space])
+    
+    if petsc:
+        A = _assemble_matrix_PETSc(A, trial_bc, test_bc)
+    else:
+        A = _assemble_matrix_scipy(A, trial_bc, test_bc)
+    return A
+    
 
-def _assemble_system_scipy(A: ufl.form.Form, l: ufl.form.Form, trial_bc: DirichletBC, test_bc: DirichletBC) -> tuple[sparse.csr_array, np.ndarray]:
+def assemble_vector(l: ufl.form.Form, trial_space, bcs: Iterable[DirichletBC] | None = None, petsc: bool = False) -> np.ndarray | PETSc.Vec:
+    
+    test_space = l.arguments()[0].ufl_function_space()
+    
+    [trial_bc,test_bc] = collect_dirichletbcs(bcs, [trial_space, test_space])
+    
+    if petsc:
+        l = _assemble_vector_PETSc(l, trial_bc, test_bc)
+    else:
+        l = _assemble_vector_scipy(l, trial_bc, test_bc)
+    return l
+    
+    
+def _assemble_matrix_scipy(A: ufl.form.Form, trial_bc: DirichletBC, test_bc: DirichletBC) -> sparse.csr_array:
     A = fem.assemble_matrix(fem.form(A)).to_scipy()
-    l = fem.assemble_vector(fem.form(l)).array
-    
     if len(trial_bc.fixed_dofs) == 0 and len(test_bc.fixed_dofs) == 0:
-        return A,l
-    
+        return A
     n_diri = len(trial_bc.fixed_dofs)
-    
     A_dirichlet = sparse.coo_array((np.ones(n_diri), (np.arange(n_diri), trial_bc.fixed_dofs)), shape=(n_diri, A.shape[1])).tocsr()
     A = sparse.vstack([A_dirichlet, A[test_bc.free_dofs,:]])
-    l = np.concatenate((trial_bc.values, l[test_bc.free_dofs]))
-    return A,l
+    return A
     # A = A[test_bc.free_dofs,:].tocsc()
     # l = l[test_bc.free_dofs] - A[:, trial_bc.fixed_dofs] @ trial_bc.values
     # A = A[:, trial_bc.free_dofs]
     # return A,l,trial_bc
-    
-    
-def _assemble_system_PETSc(A: ufl.form.Form, l: ufl.form.Form, trial_bc: DirichletBC, test_bc: DirichletBC) -> tuple[PETSc.Mat, PETSc.Vec]:  
+
+def _assemble_vector_scipy(l: ufl.form.Form, trial_bc: DirichletBC, test_bc: DirichletBC) -> np.ndarray:
+    l = fem.assemble_vector(fem.form(l)).array
+    if len(trial_bc.fixed_dofs) == 0 and len(test_bc.fixed_dofs) == 0:
+        return l    
+    return np.concatenate((trial_bc.values, l[test_bc.free_dofs]))
+
+
+def _assemble_matrix_PETSc(A: ufl.form.Form, trial_bc: DirichletBC, test_bc: DirichletBC) -> PETSc.Mat:
     n = trial_bc.ndofs
-    
+
     n_diri = len(trial_bc.fixed_dofs)   # number of rows added to set the trial dirichlet values
-    n_free = len(test_bc.free_dofs)     # number of rows remaining afte removing the test dirichlet rows 
     
     A = dolfinx.fem.petsc.assemble_matrix(fem.form(A))
-    l = dolfinx.fem.petsc.assemble_vector(fem.form(l))
-    
     A.assemble()
-    l.assemble()
     
     if len(trial_bc.fixed_dofs) == 0 and len(test_bc.fixed_dofs) == 0:
-        return A,l
+        return A
     
     A_format = A.getType()
     A_comm = A.comm
@@ -380,6 +405,8 @@ def _assemble_system_PETSc(A: ufl.form.Form, l: ufl.form.Form, trial_bc: Dirichl
     is_col = PETSc.IS().createGeneral(np.arange(n, dtype=np.int32), comm=A_comm)
     A_free = A.createSubMatrix(is_rows, is_col)
     A.destroy()
+    is_rows.destroy()
+    is_col.destroy()
     
     # Create new matrix to enforce trial dirichlet BC
     A_dirichlet = PETSc.Mat().createAIJ(size=(n_diri, n), nnz=1, comm=A_comm)
@@ -391,6 +418,25 @@ def _assemble_system_PETSc(A: ufl.form.Form, l: ufl.form.Form, trial_bc: Dirichl
     A_ = PETSc.Mat().createNest([[A_dirichlet],[A_free]],comm=A_comm)
     A_dirichlet.destroy()
     A_free.destroy()
+
+    A_.assemble()
+    A_.convert(A_format)
+    return A_
+
+def _assemble_vector_PETSc(l: ufl.form.Form, trial_bc: DirichletBC, test_bc: DirichletBC) -> PETSc.Vec:
+   
+    n_diri = len(trial_bc.fixed_dofs)   # number of rows added to set the trial dirichlet values
+    n_free = len(test_bc.free_dofs)     # number of rows remaining afte removing the test dirichlet rows 
+    
+    l = dolfinx.fem.petsc.assemble_vector(fem.form(l))
+    l.assemble()
+    
+    if len(trial_bc.fixed_dofs) == 0 and len(test_bc.fixed_dofs) == 0:
+        return l
+    
+    # ToDo: if len(trial_bc.fixed_dofs) == 0: just remove test dirichlet rows
+    # ToDO: if len(test_bc.fixed_dofs) == 0: just set trial dirichlet rows
+    # ToDo: if len(trial_bc.fixed_dofs) == len(test_bc.fixed_dofs): dont create a new matrix, modify A in place
     
     # setup right hand side
     l_ = PETSc.Vec().create(comm=l.comm)
@@ -399,16 +445,14 @@ def _assemble_system_PETSc(A: ufl.form.Form, l: ufl.form.Form, trial_bc: Dirichl
     l_.setUp()
     
     # Extract part not deleted by test dirichlet BC
+    is_rows = PETSc.IS().createGeneral(test_bc.free_dofs, comm=l.comm)
     l_dirichlet = l.getSubVector(is_rows)        
     l_.setValues(range(n_diri, n_diri + n_free), l_dirichlet.getArray())
     l.restoreSubVector(is_rows, l_dirichlet)
     l_dirichlet.destroy()
     l.destroy()
-    
+    is_rows.destroy()
     # Set part to to enforce trial dirichlet BC
     l_.setValues(range(n_diri), trial_bc.values)
-
-    A_.assemble()
-    A_.convert(A_format)
     l_.assemble()
-    return A_,l_
+    return l_
