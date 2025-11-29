@@ -191,15 +191,15 @@ def dirichletbc(function_space: FunctionSpace, u: BoundaryFunctionType, facets: 
 
 
 
-def collect_dirichletbcs(bcs: Iterable[DirichletBC | fem.DirichletBC], function_space: FunctionSpace | Iterable[FunctionSpace] | None = None, check_tol: float = 1e-14) -> DirichletBC | list[DirichletBC]:
+def collect_dirichletbcs(bcs: Iterable[DirichletBC | fem.DirichletBC] | None, function_space: FunctionSpace | Iterable[FunctionSpace] | None = None, check_tol: float = 1e-14) -> DirichletBC | list[DirichletBC]:
     r"""Collect multiple Dirichlet boundary conditions given in ``bcs`` into a single Dirichlet boundary condition for each space given in ``function_space``.
     
     Args:
         bcs:
-            Iterable of Dirichlet boundary conditions (possibly defined on different function spaces) to be collected into one Dirichlet boundary condition per function space. If bcs contains any :class:`dolfinx.fem.DirichletBC`, the `function_space` argument is mandatory.
+            Iterable of Dirichlet boundary conditions (possibly defined on different function spaces) to be collected into one Dirichlet boundary condition per function space. If bcs contains any :class:`dolfinx.fem.DirichletBC`, the `function_space` argument is mandatory. If bcs is None, an empty Dirichlet boundary condition is returned for each function space.
             
         function_space:
-            The function space(s) for which the Dirichlet boundary conditions are to be collected. If ``None``, all function spaces occuring in ``bcs`` are used, in the same order as they appear in ``bcs``.
+            The function space(s) for which the Dirichlet boundary conditions are to be collected. If ``None``, all function spaces occuring in ``bcs`` are used, in the same order as they appear in ``bcs``. If there is no Dirichlet boundary condition for a function space, an empty Dirichlet boundary condition is returned for that space.
             
         check_tol:  
             Tolerance for checking conflicting Dirichlet values at the same dof. If two Dirichlet boundary conditions specify different values at the same dof, a warning is issued and the value from the first Dirichlet boundary condition in the ``bcs`` is used. This option as no impact on the output and is just to inform about conflicting conditions. To turn off this check, set ``check_tol`` to ``np.inf``.
@@ -207,6 +207,23 @@ def collect_dirichletbcs(bcs: Iterable[DirichletBC | fem.DirichletBC], function_
     Returns:
         One Dirichlet boundary condition per function space containing all Dirichlet boundary conditions for that space. If ``function_space`` is a single function space, a single Dirichlet boundary condition is returned; if it is an iterable of function spaces or ``None``, a list of Dirichlet boundary conditions is returned in the same order as the function spaces in ``function_space``.
     """
+    
+    if bcs is None and function_space is None:
+        raise ValueError('bcs and function_space can not both be None at the same time')
+    
+    if function_space is None:
+        function_space = list()
+        for bc in bcs:
+            space = bc.function_space
+            if space not in function_space:
+                function_space.append(space)
+    
+    # if more than one function space, return one BC for each space  
+    if isinstance(function_space, Iterable):
+        return [collect_dirichletbcs(bcs, fs, check_tol) for fs in function_space]
+    
+    if bcs is None: # empty bc
+        return DirichletBC(function_space, np.array([],dtype=default_scalar_type), np.array([],dtype=np.int32))
     
     # convert dolfinx DirichletBCs to pgfenicsx DirichletBCs
     bcs_converted = []
@@ -219,17 +236,6 @@ def collect_dirichletbcs(bcs: Iterable[DirichletBC | fem.DirichletBC], function_
         else:
             bcs_converted.append(bc)
     bcs = bcs_converted
-    
-    if function_space is None:
-        function_space = list()
-        for bc in bcs:
-            space = bc.function_space
-            if space not in function_space:
-                function_space.append(space)
-    
-    # if more than one function space, return one BC for each space  
-    if isinstance(function_space, Iterable):
-        return [collect_dirichletbcs(bcs, fs, check_tol) for fs in function_space]
     
     hits = np.where([bc.function_space == function_space for bc in bcs])[0]
     if len(hits) == 0:      # empty bc
@@ -258,7 +264,7 @@ def collect_dirichletbcs(bcs: Iterable[DirichletBC | fem.DirichletBC], function_
     return DirichletBC(function_space, all_values, all_dofs)
 
 
-def assemble_system(F: ufl.form.Form | tuple[ufl.form.Form, ufl.form.Form], bcs: Iterable[DirichletBC], petsc: bool = False) -> tuple[sparse.csr_array, np.ndarray] | tuple[PETSc.Mat, PETSc.Vec]:
+def assemble_system(F: ufl.form.Form | tuple[ufl.form.Form, ufl.form.Form], bcs: Iterable[DirichletBC] | None = None, petsc: bool = False) -> tuple[sparse.csr_array, np.ndarray] | tuple[PETSc.Mat, PETSc.Vec]:
     r"""
     Assemble the system matrix and right-hand side of a Petrov-Galerkin variational problem either as SciPy sparse matrix or using PETSc, with the Dirichlet boundary conditions given in ``bcs``.
     
@@ -309,11 +315,6 @@ def assemble_system(F: ufl.form.Form | tuple[ufl.form.Form, ufl.form.Form], bcs:
     .. note::
         If you call ``assemble_system`` for the same list of Dirichlet boundary conditions ``bcs`` multiple times, you might run ``bcs = pgfenicsx.collect_dirichletbcs(bcs, [trial_space, test_space])`` beforehand to avoid collecting them in every call of ``assemble_system``. This has no impact on functionality, but might improve performance.
         
-    .. todo::
-        Support bcs = None for no dirichlet boundary conditions. Just use 
-        fem.assemble_matrix(fem.form(A)).to_scipy(), fem.assemble_vector(fem.form(l)).array
-        or 
-        dolfinx.fem.petsc.assemble_matrix(fem.form(A)), dolfinx.fem.petsc.assemble_vector(fem.form(l))
     """
     if isinstance(F, tuple):
         A,l = F
@@ -336,6 +337,9 @@ def assemble_system(F: ufl.form.Form | tuple[ufl.form.Form, ufl.form.Form], bcs:
 def _assemble_system_scipy(A: ufl.form.Form, l: ufl.form.Form, trial_bc: DirichletBC, test_bc: DirichletBC) -> tuple[sparse.csr_array, np.ndarray]:
     A = fem.assemble_matrix(fem.form(A)).to_scipy()
     l = fem.assemble_vector(fem.form(l)).array
+    
+    if len(trial_bc.fixed_dofs) == 0 and len(test_bc.fixed_dofs) == 0:
+        return A,l
     
     n_diri = len(trial_bc.fixed_dofs)
     
@@ -361,10 +365,12 @@ def _assemble_system_PETSc(A: ufl.form.Form, l: ufl.form.Form, trial_bc: Dirichl
     A.assemble()
     l.assemble()
     
+    if len(trial_bc.fixed_dofs) == 0 and len(test_bc.fixed_dofs) == 0:
+        return A,l
+    
     A_format = A.getType()
     A_comm = A.comm
     
-    # ToDo: if len(trial_bc.fixed_dofs) == 0 and len(test_bc.fixed_dofs) == 0: just return A,l
     # ToDo: if len(trial_bc.fixed_dofs) == 0: just remove test dirichlet rows
     # ToDO: if len(test_bc.fixed_dofs) == 0: just set trial dirichlet rows
     # ToDo: if len(trial_bc.fixed_dofs) == len(test_bc.fixed_dofs): dont create a new matrix, modify A in place
