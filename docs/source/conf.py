@@ -92,7 +92,6 @@ intersphinx_mapping = {
     'python': ('https://docs.python.org/dev', None),
     'numpy': ('https://numpy.org/doc/stable/', None),
     'scipy': ('http://docs.scipy.org/doc/scipy/reference', None),
-    'dolfinx': ('https://docs.fenicsproject.org/dolfinx/main/python/', None),
-    'ufl': ('https://docs.fenicsproject.org/ufl/main', None),
+    'dolfinx': ('https://docs.fenicsproject.org/dolfinx/v0.10.0/python/', None),
     'petsc4py': ('https://petsc.org/release/petsc4py/', None),
 }

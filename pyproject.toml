@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pgfenicsx"
-version = "0.1.0"
-description = ""
+version = "0.1"
+description = "Fenicsx (v0.10) addon to support Petrov-Galerkin formulations"
 authors = [{ name = "Moritz Feuerle" }]
 readme = "README.md"
 requires-python = ">=3.12"
