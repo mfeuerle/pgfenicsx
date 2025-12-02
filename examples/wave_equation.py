@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.sparse.linalg import lsqr
+from scipy import sparse
 from mpi4py import MPI
 from dolfinx import mesh, fem
 import ufl
@@ -7,7 +7,24 @@ from petsc4py import PETSc
 from enum import IntEnum
 import pgfenicsx
 
-np.set_printoptions(edgeitems=30, linewidth=100000, precision=2)
+############################################
+# Problem: space-time wave equation
+############################################
+# find u such that
+#   - u_tt + u_xx = f  in I x Omega
+#       u   = u0 on {t=0} x Omega
+#       u_t = u1 on {t=0} x Omega
+#       u   = g0 on I x Gamma   (Gamma = boundary of Omega)
+
+############################################
+# Variational formulation:
+############################################
+# Using one integration by parts in time and space, we get:
+# Find u in U such that
+#   (u_t, v_t)_L2(IxOmega) + (u_x, v_x)_L2(IxOmega) = (f,v)_L2(IxOmega) + (u1,v(0))_L2(Omega)  for all v in V
+# with 
+#   U = {u in H1(IxOmega) : u(0) = u0 in Omega, u=g0 on IxGamma}
+#   V = {v in H1(IxOmega) : v(T) = 0  in Omega, v=0  on IxGamma}
 
 
 ############################################
@@ -16,17 +33,18 @@ np.set_printoptions(edgeitems=30, linewidth=100000, precision=2)
 I     = [0.0, 3.0]
 Omega = [0.0, 2.0]
 
-nx = 15
+nx = 20
 nt = np.ceil((I[1]-I[0])/((Omega[1]-Omega[0])/(nx+1))).astype('int')    # ensure CFL condition
 
 msh = mesh.create_rectangle(MPI.COMM_WORLD, [[I[0], Omega[0]], [I[1], Omega[1]]], [nt, nx])
-msh.topology.create_connectivity(msh.topology.dim-1, msh.topology.dim)
+tdim = msh.topology.dim
+msh.topology.create_connectivity(tdim-1, tdim)
 
 tx = ufl.SpatialCoordinate(msh)
 n  = ufl.FacetNormal(msh)
 
-u_exact = lambda tx: np.sin(np.pi*tx[0])*tx[1] + 1  # +1 to avoid zero boundary values
-f  = -ufl.pi**2 * ufl.sin(ufl.pi*tx[0])*tx[1]       # right-hand side
+u_exact = lambda tx: np.sin(np.pi*tx[0])*tx[1] + 1  # exact solution as reference
+f  = - ufl.pi**2 * ufl.sin(ufl.pi*tx[0])*tx[1]      # right-hand side
 u0 = u_exact                                        # dirichlet BC at initial time    
 u1 = ufl.pi * ufl.cos(ufl.pi*tx[0])*tx[1]           # neuman BC at initial time
 g0 = u_exact                                        # dirichlet BC at spatial boundary
@@ -38,61 +56,75 @@ U = fem.functionspace(msh, ("Lagrange", 1))
 V = fem.functionspace(msh, ("Lagrange", 1))
 
 class bdry_prt(IntEnum): t0,T,gamma = range(3)
-bdry  = [(bdry_prt.t0, lambda tx: np.isclose(tx[0], I[0])),  # initial time
-         (bdry_prt.T,  lambda tx: np.isclose(tx[0], I[1])),  # terminal time
-         (bdry_prt.gamma,)]                                  # boundary in space (= the remaining bounary parts)
+bdry  = [(bdry_prt.t0,    lambda tx: np.isclose(tx[0], I[0])),  # initial time
+         (bdry_prt.T,     lambda tx: np.isclose(tx[0], I[1])),  # terminal time
+         (bdry_prt.gamma, lambda tx: np.logical_or(np.isclose(tx[1], Omega[0]),np.isclose(tx[1], Omega[1])))]  # I x Gamma
 
 ############################################
-# Setup Dirichlet BCs usning pgfenicsx
+# Setup boundary parts
 ############################################
-bdry_tagged = pgfenicsx.setup_boundary_meshtags(msh, bdry)  # just a convenience function to create meshtags for boundaries
+facets = np.empty((0,), dtype=np.int32)
+tags   = np.empty((0,), dtype=np.int32)
+for b in bdry:
+    facets_b = mesh.locate_entities_boundary(msh, dim=tdim-1, marker=b[1])
+    facets = np.append(facets, facets_b)
+    tags   = np.append(tags,   np.full_like(facets_b, b[0], dtype=np.int32))
+
+bdry_tagged = mesh.meshtags(msh, tdim-1, facets, tags)
 ds = ufl.Measure("ds", domain=msh, subdomain_data=bdry_tagged)
 
-# bcs = [ pgfenicsx.dirichletbc(U, u0, bdry_tagged.find(bdry_prt.t0)),
-#         pgfenicsx.dirichletbc(U, g0, bdry_tagged.find(bdry_prt.gamma)),
-#         pgfenicsx.dirichletbc(V, 0,  bdry_tagged.find(bdry_prt.T)),
-#         pgfenicsx.dirichletbc(V, 0,  bdry_tagged.find(bdry_prt.gamma))]
+############################################
+# Setup Dirichlet BCs
+############################################
+def get_dofs(space, bdry_part):
+    return fem.locate_dofs_topological(space, tdim-1, bdry_tagged.find(bdry_part))
 
-############################################
-# Setup Dirichlet BCs usning fenicsx
-############################################
 u0_ = fem.Function(U)
 u0_.interpolate(u0)
 g0_ = fem.Function(U)
 g0_.interpolate(g0)
-tdim = msh.topology.dim-1
-bcs = [ fem.dirichletbc(u0_, fem.locate_dofs_topological(U,tdim,bdry_tagged.find(bdry_prt.t0))),
-        fem.dirichletbc(g0_, fem.locate_dofs_topological(U,tdim,bdry_tagged.find(bdry_prt.gamma))),
-        fem.dirichletbc(0.0, fem.locate_dofs_topological(V,tdim,bdry_tagged.find(bdry_prt.T)), V),
-        fem.dirichletbc(0.0, fem.locate_dofs_topological(V,tdim,bdry_tagged.find(bdry_prt.gamma)), V)]
-u = ufl.TrialFunction(U)
-v = ufl.TestFunction(V)
+
+bcs = [ fem.dirichletbc(u0_, get_dofs(U, bdry_prt.t0)      ),
+        fem.dirichletbc(g0_, get_dofs(U, bdry_prt.gamma)   ),
+        fem.dirichletbc(0.0, get_dofs(V, bdry_prt.T),     V),
+        fem.dirichletbc(0.0, get_dofs(V, bdry_prt.gamma), V)]
 
 ############################################
 # Setup variational problem
 ############################################
+u = ufl.TrialFunction(U)
+v = ufl.TestFunction(V)
+
 A =  - ufl.inner(ufl.grad(u)[0],ufl.grad(v)[0]) * ufl.dx
 for i in range(1,len(tx)):
     A += ufl.inner(ufl.grad(u)[i],ufl.grad(v)[i]) * ufl.dx
 
 l = f*v*ufl.dx + u1*v*ds(bdry_prt.t0)
 
+A = fem.form(A)
+l = fem.form(l)
+
+############################################
+# Interpolate exact solution
+############################################
 u_exact_ = fem.Function(U)
 u_exact_.interpolate(u_exact)
 
 ############################################
 # Solve the variational problem using SciPy
 #############################################
-A_scipy,l_scipy = pgfenicsx.assemble_system((A,l), bcs, petsc=False)
+A_scipy = pgfenicsx.assemble_matrix(A, bcs, petsc=False)
+l_scipy = pgfenicsx.assemble_vector(l, U, bcs, petsc=False)
 u_scipy = fem.Function(U)
-u_scipy.x.array[:] = lsqr(A_scipy,l_scipy)[0]
+u_scipy.x.array[:] = sparse.linalg.spsolve(A_scipy,l_scipy)
 
-print(np.linalg.norm(u_scipy.x.array - u_exact_.x.array, ord=np.inf))
+print(f"Error (SciPy): {np.linalg.norm(u_scipy.x.array - u_exact_.x.array, ord=np.inf)}")
 
 ############################################
 # Solve the variational problem using PETSc
 #############################################
-A_petsc,l_petsc = pgfenicsx.assemble_system((A,l), bcs, petsc=True) 
+A_petsc = pgfenicsx.assemble_matrix(A, bcs, petsc=True)
+l_petsc = pgfenicsx.assemble_vector(l, U, bcs, petsc=True)
 solver = PETSc.KSP().create(MPI.COMM_WORLD)
 solver.setOperators(A_petsc)
 solver.setType("preonly")
@@ -104,7 +136,7 @@ u_petsc.x.petsc_vec.ghostUpdate(
 )
 solver.solve(l_petsc, u_petsc.x.petsc_vec)
 
-print(np.linalg.norm(u_petsc.x.array - u_exact_.x.array, ord=np.inf))
+print(f"Error (PETSc): {np.linalg.norm(u_petsc.x.array - u_exact_.x.array, ord=np.inf)}")
 
 ############################################
 # Visualise the solution using pyvista
@@ -131,13 +163,9 @@ try:
     plotter.subplot(0, 0)
     plot_pyvista(u_exact_.x.array, "u_exact", plotter)
     plotter.subplot(0, 1)
-    plot_pyvista(u_scipy.x.array, "u1", plotter)
+    plot_pyvista(u_scipy.x.array, "u_scipy", plotter)
     plotter.subplot(0, 2)
-    plot_pyvista(u_petsc.x.array, "u2", plotter)
-    # plotter.subplot(1, 1)
-    # plot_pyvista(u1 - u_exact_discrete.x.array, "error u1", plotter)
-    # plotter.subplot(1, 2)
-    # plot_pyvista(u2 - u_exact_discrete.x.array, "error u2", plotter)
+    plot_pyvista(u_petsc.x.array, "u_petsc", plotter)
     
     if pyvista.OFF_SCREEN:
         plotter.screenshot(results_folder / f".png")
