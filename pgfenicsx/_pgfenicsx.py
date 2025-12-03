@@ -5,21 +5,17 @@ __all__ = ['merge_dirichletbcs', 'assemble_matrix', 'assemble_vector']
 
 import numpy as np
 import scipy.sparse as sparse
-from numbers import Number
-from dolfinx import default_scalar_type
 from dolfinx import fem, cpp
-import ufl
 import dolfinx.fem.petsc
 from petsc4py import PETSc
 
 from typing import TypeAlias
-from collections.abc import Iterable, Callable
-BoundaryFunctionType: TypeAlias = fem.Function | fem.Constant | fem.Expression | Number | Callable
+from collections.abc import Iterable
 DirichletCPPType: TypeAlias = cpp.fem.DirichletBC_float32 | cpp.fem.DirichletBC_float64 | cpp.fem.DirichletBC_complex64 | cpp.fem.DirichletBC_complex128
 FunctionSpaceCPPType: TypeAlias = cpp.fem.FunctionSpace_float32 | cpp.fem.FunctionSpace_float64
 
 
-def as_numpy_vector(x, dtype=None):
+def _as_numpy_vector(x, dtype=None):
     """Ensure that x is a numpy array of the given dtype and shape (n,)."""
     return np.asarray(x, dtype=dtype).reshape((-1,))
 
@@ -92,15 +88,15 @@ def merge_dirichletbcs(bcs: Iterable[fem.DirichletBC | DirichletCPPType] | None,
         
         # collect dofs and values in one array, checking for conflicts
         dtype = np.common_type(function_space.mesh.geometry.x, *values)
-        all_dofs = as_numpy_vector(dofs[0],dtype=np.int32)
-        all_values = as_numpy_vector(values[0],dtype=dtype)
+        all_dofs = _as_numpy_vector(dofs[0],dtype=np.int32)
+        all_values = _as_numpy_vector(values[0],dtype=dtype)
         for d,v in zip(dofs[1:], values[1:]):
             idx_duplicates = np.isin(d, all_dofs, assume_unique=True)
             idx_new = np.logical_not(idx_duplicates)
             all_dofs = np.append(all_dofs, d[idx_new])
-            all_values = np.append(all_values, as_numpy_vector(v[idx_new], dtype=dtype))
+            all_values = np.append(all_values, _as_numpy_vector(v[idx_new], dtype=dtype))
             
-            for d_dupl, v_dupl in zip(d[idx_duplicates], as_numpy_vector(v[idx_duplicates], dtype=dtype)):
+            for d_dupl, v_dupl in zip(d[idx_duplicates], _as_numpy_vector(v[idx_duplicates], dtype=dtype)):
                 v_existing = all_values[np.where(all_dofs == d_dupl)][0]
                 if not np.isclose(v_existing, v_dupl, atol=check_tol):
                     from warnings import warn
