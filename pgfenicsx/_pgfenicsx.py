@@ -60,13 +60,8 @@ def merge_dirichletbcs(bcs: Iterable[fem.DirichletBC | DirichletCPPType] | None,
     if isinstance(function_space, Iterable):
         return [merge_dirichletbcs(bcs, fs, check_tol) for fs in function_space]
     # from now on, function_space is a single space
-        
-
-    if bcs is None or len(bcs) == 0:
-        dtype = function_space.mesh.geometry.x.dtype
-        all_dofs = np.array([], dtype=np.int32)
-        all_values = np.array([], dtype=dtype)
-    else:
+    
+    if bcs is not None:
         # convert bcs to cpp objects
         bcs = [bc._cpp_object if isinstance(bc, fem.DirichletBC) else bc for bc in bcs]
 
@@ -85,22 +80,31 @@ def merge_dirichletbcs(bcs: Iterable[fem.DirichletBC | DirichletCPPType] | None,
                 raise NotImplementedError(f'Dont know the DirichletBC value type {type(bc.value)}')
             dofs.append(d)
             values.append(v)
-        
-        # collect dofs and values in one array, checking for conflicts
-        dtype = np.common_type(function_space.mesh.geometry.x, *values)
-        all_dofs = _as_numpy_vector(dofs[0],dtype=np.int32)
-        all_values = _as_numpy_vector(values[0],dtype=dtype)
-        for d,v in zip(dofs[1:], values[1:]):
-            idx_duplicates = np.isin(d, all_dofs, assume_unique=True)
-            idx_new = np.logical_not(idx_duplicates)
-            all_dofs = np.append(all_dofs, d[idx_new])
-            all_values = np.append(all_values, _as_numpy_vector(v[idx_new], dtype=dtype))
             
-            for d_dupl, v_dupl in zip(d[idx_duplicates], _as_numpy_vector(v[idx_duplicates], dtype=dtype)):
-                v_existing = all_values[np.where(all_dofs == d_dupl)][0]
-                if not np.isclose(v_existing, v_dupl, atol=check_tol):
-                    from warnings import warn
-                    warn(f'\nConflicting Dirichlet BC value at dof#{d_dupl}: {v_dupl} vs {v_existing}; using {v_existing}')
+        if len(dofs) == 0:
+            # no dirichlet bcs for this function space
+            bcs = None
+        else:
+            # collect dofs and values in one array, checking for conflicts
+            dtype = np.common_type(function_space.mesh.geometry.x, *values)
+            all_dofs = _as_numpy_vector(dofs[0],dtype=np.int32)
+            all_values = _as_numpy_vector(values[0],dtype=dtype)
+            for d,v in zip(dofs[1:], values[1:]):
+                idx_duplicates = np.isin(d, all_dofs, assume_unique=True)
+                idx_new = np.logical_not(idx_duplicates)
+                all_dofs = np.append(all_dofs, d[idx_new])
+                all_values = np.append(all_values, _as_numpy_vector(v[idx_new], dtype=dtype))
+                
+                for d_dupl, v_dupl in zip(d[idx_duplicates], _as_numpy_vector(v[idx_duplicates], dtype=dtype)):
+                    v_existing = all_values[np.where(all_dofs == d_dupl)][0]
+                    if not np.isclose(v_existing, v_dupl, atol=check_tol):
+                        from warnings import warn
+                        warn(f'\nConflicting Dirichlet BC value at dof#{d_dupl}: {v_dupl} vs {v_existing}; using {v_existing}')
+                    
+    if bcs is None:
+        dtype = function_space.mesh.geometry.x.dtype
+        all_dofs = np.array([], dtype=np.int32)
+        all_values = np.array([], dtype=dtype)
     
     # select right cpp class based on dtype           
     if np.issubdtype(dtype, np.float32):

@@ -15,6 +15,10 @@ U = fem.functionspace(mesh, ("Lagrange", 1))
 V = fem.functionspace(mesh, ("Lagrange", 2))
 # using DG: da stimmt was mit den dofs nicht, checkn wie das dort läuft
 
+def empty_bc(space):
+    u = fem.Function(space, dtype=dtype)
+    u.interpolate(lambda x: 0*x[0])
+    return fem.dirichletbc(u, np.empty(0, dtype=np.int32))._cpp_object
 
 
 def check_bcs(bc1, bc2):
@@ -54,6 +58,10 @@ def test_merge_Function_Function():
     bc_U_exact = fem.dirichletbc(u12, fem.locate_dofs_topological(U,tdim,u12_facets))._cpp_object
 
     check_bcs(merge_dirichletbcs(bcs_U, U), bc_U_exact)
+    check_bcs(merge_dirichletbcs(bcs_U, [U,U]), [bc_U_exact, bc_U_exact])
+    check_bcs(merge_dirichletbcs(bcs_U, [U,V]), [bc_U_exact, empty_bc(V)])
+    check_bcs(merge_dirichletbcs(bcs_U, [V,U]), [empty_bc(V), bc_U_exact])
+    check_bcs(merge_dirichletbcs(bcs_U, [V,V]), [empty_bc(V), empty_bc(V)])
     check_bcs(merge_dirichletbcs(bcs_U)[0], bc_U_exact)
     
 
@@ -98,7 +106,7 @@ def test_empty_bcs():
     check_bcs(merge_dirichletbcs(None,U), bc_U_exact)
     
 
-def test_two_spaces_only_one_wanted():
+def test_two_spaces():
     u1_marker = lambda x: np.isclose(x[0], 0.0)
     u2_marker = lambda x: np.isclose(x[1], 0.0)
     u12_marker = lambda x: np.logical_or(u1_marker(x), u2_marker(x))
@@ -150,3 +158,9 @@ def test_two_spaces_only_one_wanted():
     check_bcs(merge_dirichletbcs(bcs,[U,V]), [bc_U_exact, bc_V_exact])
     check_bcs(merge_dirichletbcs(bcs,[V,U]), [bc_V_exact, bc_U_exact])
     check_bcs(merge_dirichletbcs(bcs), [bc_U_exact, bc_V_exact])
+    
+if __name__ == "__main__":
+    test_merge_Function_Function()
+    test_merge_Function_Constant()
+    test_empty_bcs()
+    test_two_spaces()
