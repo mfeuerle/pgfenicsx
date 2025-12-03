@@ -89,6 +89,8 @@ bcs = [ fem.dirichletbc(u0_, get_dofs(U, bdry_prt.t0)      ),
         fem.dirichletbc(0.0, get_dofs(V, bdry_prt.T),     V),
         fem.dirichletbc(0.0, get_dofs(V, bdry_prt.gamma), V)]
 
+bcs = pgfenicsx.merge_dirichletbcs(bcs)
+
 ############################################
 # Setup variational problem
 ############################################
