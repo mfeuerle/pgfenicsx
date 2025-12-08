@@ -2,9 +2,10 @@ import numpy as np
 import scipy.sparse.linalg
 from mpi4py import MPI
 from dolfinx import mesh, fem
+import dolfinx.fem.petsc
 import ufl
 from petsc4py import PETSc
-import pgfenicsx
+import pgfenicsx as pg
 
 # for the problem description, see https://fenicsproject.discourse.group/t/petrov-gelerkin-formulations-and-fenicsx/18369
 
@@ -52,18 +53,24 @@ A = fem.form(A)
 l = fem.form(l)
 
 # solve using pgfenicsx assembly routines (SciPy)
-A_scipy = pgfenicsx.assemble_matrix(A, bcs)
-l_scipy = pgfenicsx.assemble_vector(l, U, bcs)
+A_scipy = fem.assemble_matrix(A).to_scipy()
+l_scipy = fem.assemble_vector(l).array
+
+A_scipy_bcs = pg.apply_dirichletbc_matrix(A_scipy,U,V,bcs)
+l_scipy_bcs = pg.apply_dirichletbc_vector(l_scipy,U,V,bcs)
 
 u_scipy = fem.Function(U)
-u_scipy.x.array[:] = scipy.sparse.linalg.spsolve(A_scipy,l_scipy)
+u_scipy.x.array[:] = scipy.sparse.linalg.spsolve(A_scipy_bcs,l_scipy_bcs)
 
 # solve using pgfenicsx assembly routines (PETSc)
-A_petsc = pgfenicsx.assemble_matrix(A, bcs, petsc=True)
-l_petsc = pgfenicsx.assemble_vector(l, U, bcs, petsc=True)
+A_petsc = fem.petsc.assemble_matrix(A)
+l_petsc = fem.petsc.assemble_vector(l)
+
+A_petsc_bcs = pg.apply_dirichletbc_matrix(A_petsc,U,V,bcs)
+l_petsc_bcs = pg.apply_dirichletbc_vector(l_petsc,U,V,bcs)
 
 solver = PETSc.KSP().create(MPI.COMM_WORLD)
-solver.setOperators(A_petsc)
+solver.setOperators(A_petsc_bcs)
 solver.setType("preonly")
 solver.getPC().setType("qr")
 solver.setFromOptions()
@@ -72,7 +79,7 @@ u_petsc = fem.Function(U)
 u_petsc.x.petsc_vec.ghostUpdate(
     addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE
 )
-solver.solve(l_petsc, u_petsc.x.petsc_vec)
+solver.solve(l_petsc_bcs, u_petsc.x.petsc_vec)
 
 # compute error
 u_exact_ = fem.Function(U)

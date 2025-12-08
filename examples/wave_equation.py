@@ -2,10 +2,11 @@ import numpy as np
 from scipy import sparse
 from mpi4py import MPI
 from dolfinx import mesh, fem
+import dolfinx.fem.petsc
 import ufl
 from petsc4py import PETSc
 from enum import IntEnum
-import pgfenicsx
+import pgfenicsx as pg
 
 ############################################
 # Problem: space-time wave equation
@@ -89,7 +90,7 @@ bcs = [ fem.dirichletbc(u0_U, get_dofs(U, bdry_prt.t0)      ),
         fem.dirichletbc(0.0,  get_dofs(V, bdry_prt.T),     V),
         fem.dirichletbc(0.0,  get_dofs(V, bdry_prt.gamma), V)]
 
-bcs = pgfenicsx.merge_dirichletbcs(bcs)
+bcs = pg.merge_dirichletbcs(bcs)
 
 ############################################
 # Setup variational problem
@@ -115,30 +116,41 @@ u_exact_.interpolate(u_exact)
 ############################################
 # Solve the variational problem using SciPy
 #############################################
-A_scipy = pgfenicsx.assemble_matrix(A, bcs, petsc=False)
-l_scipy = pgfenicsx.assemble_vector(l, U, bcs, petsc=False)
+A_scipy = fem.assemble_matrix(A).to_scipy()
+l_scipy = fem.assemble_vector(l).array
+
+A_scipy_bcs = pg.apply_dirichletbc_matrix(A_scipy,U,V,bcs)
+l_scipy_bcs = pg.apply_dirichletbc_vector(l_scipy,U,V,bcs)
+
 u_scipy = fem.Function(U)
-u_scipy.x.array[:] = sparse.linalg.spsolve(A_scipy,l_scipy)
+u_scipy.x.array[:] = sparse.linalg.spsolve(A_scipy_bcs,l_scipy_bcs)
 
 print(f"Error (SciPy): {np.linalg.norm(u_scipy.x.array - u_exact_.x.array, ord=np.inf)}")
 
 ############################################
 # Solve the variational problem using PETSc
 #############################################
-A_petsc = pgfenicsx.assemble_matrix(A, bcs, petsc=True)
-l_petsc = pgfenicsx.assemble_vector(l, U, bcs, petsc=True)
+A_petsc = fem.petsc.assemble_matrix(A)
+l_petsc = fem.petsc.assemble_vector(l)
+
+A_petsc_bcs = pg.apply_dirichletbc_matrix(A_petsc,U,V,bcs)
+l_petsc_bcs = pg.apply_dirichletbc_vector(l_petsc,U,V,bcs)
+
 solver = PETSc.KSP().create(MPI.COMM_WORLD)
-solver.setOperators(A_petsc)
+solver.setOperators(A_petsc_bcs)
 solver.setType("preonly")
 solver.getPC().setType("qr")
 solver.setFromOptions()
+
 u_petsc = fem.Function(U)
 u_petsc.x.petsc_vec.ghostUpdate(
     addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE
 )
-solver.solve(l_petsc, u_petsc.x.petsc_vec)
+solver.solve(l_petsc_bcs, u_petsc.x.petsc_vec)
 
 print(f"Error (PETSc): {np.linalg.norm(u_petsc.x.array - u_exact_.x.array, ord=np.inf)}")
+
+
 
 ############################################
 # Visualise the solution using pyvista
