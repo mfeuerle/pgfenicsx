@@ -185,7 +185,7 @@ def apply_dirichletbc_system(A: sparse.csr_array | PETSc.Mat, l: np.ndarray | PE
     .. math::
         A = \begin{bmatrix} A_{f_V,f_U} & A_{f_V,d_U} \\ A_{d_V,f_U} & A_{d_V,d_U}  \end{bmatrix}, 
         \quad u = \begin{bmatrix} u_{f_U} \\ u_{d_U} \end{bmatrix},
-        \quad l = \begin{bmatrix} l_{f_V} \\ l_{f_V} \end{bmatrix}.
+        \quad l = \begin{bmatrix} l_{f_V} \\ l_{d_V} \end{bmatrix}.
         
     Now, we apply the dirichlet BCs to this system. First, we remove the rows corresponding to the test dirichlet dofs :math:`d_V`, i.e.
     
@@ -199,7 +199,7 @@ def apply_dirichletbc_system(A: sparse.csr_array | PETSc.Mat, l: np.ndarray | PE
     .. math::
         \tilde{A} := \begin{bmatrix} A_{f_V,f_U} & A_{f_V,d_U} \\ 0 & I_{d_U,d_U} \end{bmatrix}
         \begin{bmatrix} u_{f_U} \\ u_{d_U} \end{bmatrix}
-        = \begin{bmatrix} l_{f_U} \\ g \end{bmatrix} =: \tilde{l}.
+        = \begin{bmatrix} l_{f_V} \\ g \end{bmatrix} =: \tilde{l}.
     
     Thus, the system now reads :math:`\tilde{A} u = \tilde{l}`. The resulting system matrix is in general neither square nor symmetric, even if the original system matrix was square and symmetric. This is inherent to Petrov-Galerkin formulations where the trial and test spaces can differ, thus one can not expect the system to be square or even symmetric.
     

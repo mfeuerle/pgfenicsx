@@ -33,14 +33,14 @@ Now, the system can be assembled into SciPy or PETSc, bevor using this module to
 
 >>> # Using scipy:
 >>> A = fem.assemble_matrix(A_form).to_scipy() # dont use bcs here!
->>> l = fem.assemble_vector(l_form).array      # dont use bcs here!
+>>> l = fem.assemble_vector(l_form).array      # dont call fem.apply_lifting!
 
 or alternatively:
 
 >>> # Using PETSc:
 >>> import dolfinx.fem.petsc
 >>> A = dolfinx.fem.petsc.assemble_matrix(A_form) # dont use bcs here!
->>> l = dolfinx.fem.petsc.assemble_vector(l_form) # dont use bcs here!
+>>> l = dolfinx.fem.petsc.assemble_vector(l_form) # dont call fem.petsc.apply_lifting!
 
 Either way, the Dirichlet boundary conditions can now be applied using this module:
 
